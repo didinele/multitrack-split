@@ -1,0 +1,6 @@
+.DS_Store
+*.wav
+*.png
+*.json
+__pycache__
+cache
