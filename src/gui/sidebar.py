@@ -1,0 +1,180 @@
+from PySide6.QtCore import Qt, QSettings, Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpinBox,
+    QWidget,
+)
+
+
+class SettingsSidebar(QWidget):
+    run_analysis_requested = Signal()
+    rerun_segmentation_requested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumWidth(260)
+        self.setMaximumWidth(360)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+        content = QWidget()
+        form = QFormLayout(content)
+        form.setContentsMargins(14, 14, 14, 14)
+        form.setSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        # --- Directories ---
+        self._input_dir = QLineEdit()
+        self._input_dir.setPlaceholderText("Select folder...")
+        form.addRow("Input:", self._make_dir_row(self._input_dir))
+
+        self._output_dir = QLineEdit()
+        self._output_dir.setPlaceholderText("Select folder...")
+        form.addRow("Output:", self._make_dir_row(self._output_dir))
+
+        self._exclusions = QLineEdit()
+        self._exclusions.setPlaceholderText("click")
+        self._exclusions.setToolTip(
+            "Comma-separated keywords; files whose name contains any of these are excluded from analysis"
+        )
+        form.addRow("Exclusions:", self._exclusions)
+
+        form.addRow(self._separator())
+
+        # --- Segmentation parameters ---
+        form.addRow(QLabel("<b>Segmentation</b>"))
+
+        self._start_thresh = QDoubleSpinBox()
+        self._start_thresh.setRange(0.0, 1.0)
+        self._start_thresh.setSingleStep(0.05)
+        self._start_thresh.setDecimals(2)
+        self._start_thresh.setValue(0.3)
+        self._start_thresh.setToolTip("Signal must rise above this to start a region")
+        form.addRow("Start thresh:", self._start_thresh)
+
+        self._stop_thresh = QDoubleSpinBox()
+        self._stop_thresh.setRange(0.0, 1.0)
+        self._stop_thresh.setSingleStep(0.05)
+        self._stop_thresh.setDecimals(2)
+        self._stop_thresh.setValue(0.1)
+        self._stop_thresh.setToolTip("Signal must fall below this to end a region")
+        form.addRow("Stop thresh:", self._stop_thresh)
+
+        self._smooth_window = QSpinBox()
+        self._smooth_window.setRange(1, 300)
+        self._smooth_window.setValue(10)
+        self._smooth_window.setSuffix(" s")
+        self._smooth_window.setToolTip("Moving-average window applied to features before thresholding")
+        form.addRow("Smooth window:", self._smooth_window)
+
+        self._min_active = QSpinBox()
+        self._min_active.setRange(1, 3600)
+        self._min_active.setValue(60)
+        self._min_active.setSuffix(" s")
+        self._min_active.setToolTip("Minimum duration for a detected region to count as a song")
+        form.addRow("Min active:", self._min_active)
+
+        self._min_silence = QSpinBox()
+        self._min_silence.setRange(1, 3600)
+        self._min_silence.setValue(30)
+        self._min_silence.setSuffix(" s")
+        self._min_silence.setToolTip("Minimum silence gap between two separate songs")
+        form.addRow("Min silence:", self._min_silence)
+
+        form.addRow(self._separator())
+        form.addRow(QLabel("<b>Padding</b>"))
+
+        self._pre_pad = QSpinBox()
+        self._pre_pad.setRange(0, 300)
+        self._pre_pad.setValue(25)
+        self._pre_pad.setSuffix(" s")
+        self._pre_pad.setToolTip("Extra seconds added before each detected region")
+        form.addRow("Pre-pad:", self._pre_pad)
+
+        self._post_pad = QSpinBox()
+        self._post_pad.setRange(0, 300)
+        self._post_pad.setValue(25)
+        self._post_pad.setSuffix(" s")
+        self._post_pad.setToolTip("Extra seconds added after each detected region")
+        form.addRow("Post-pad:", self._post_pad)
+
+        form.addRow(self._separator())
+
+        self._no_cache = QCheckBox("Ignore cache")
+        self._no_cache.setToolTip("Force re-computation even if a cached analysis exists")
+        form.addRow(self._no_cache)
+
+        form.addRow(self._separator())
+
+        self._run_btn = QPushButton("Run Analysis")
+        form.addRow(self._run_btn)
+        self._run_btn.clicked.connect(self.run_analysis_requested)
+
+        self._rerun_btn = QPushButton("Re-run Segmentation")
+        self._rerun_btn.setEnabled(False)
+        self._rerun_btn.setToolTip("Re-apply segmentation heuristics using current parameters (fast — no re-analysis)")
+        form.addRow(self._rerun_btn)
+        self._rerun_btn.clicked.connect(self.rerun_segmentation_requested)
+
+        scroll = QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        outer = QFormLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addRow(scroll)
+
+    def _make_dir_row(self, line_edit: QLineEdit) -> QWidget:
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(line_edit)
+        btn = QPushButton("…")
+        btn.setFixedWidth(28)
+        btn.clicked.connect(lambda: self._pick_dir(line_edit))
+        row.addWidget(btn)
+        return container
+
+    def _pick_dir(self, line_edit: QLineEdit):
+        path = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if path:
+            line_edit.setText(path)
+
+    def _separator(self) -> QFrame:
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        return sep
+
+    def get_params(self) -> dict:
+        raw_excl = [x.strip() for x in self._exclusions.text().split(",") if x.strip()]
+        return {
+            "input_dir": self._input_dir.text().strip(),
+            "output_dir": self._output_dir.text().strip(),
+            "exclusions": raw_excl if raw_excl else ["click"],
+            "start_thresh": self._start_thresh.value(),
+            "stop_thresh": self._stop_thresh.value(),
+            "smooth_windows_sec": self._smooth_window.value(),
+            "min_active_sec": self._min_active.value(),
+            "min_silence_sec": self._min_silence.value(),
+            "pre_pad": self._pre_pad.value(),
+            "post_pad": self._post_pad.value(),
+            "no_cache": self._no_cache.isChecked(),
+        }
+
+    def set_run_enabled(self, enabled: bool):
+        self._run_btn.setEnabled(enabled)
+
+    def set_rerun_enabled(self, enabled: bool):
+        self._rerun_btn.setEnabled(enabled)
