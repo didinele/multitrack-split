@@ -31,7 +31,7 @@ class RegionEditorCanvas(FigureCanvasQTAgg):
     regions_changed = Signal()
 
     def __init__(self):
-        fig = Figure(figsize=(15, 6), tight_layout=True)
+        fig = Figure(figsize=(6, 4), tight_layout=True)
         super().__init__(fig)
         self._ax = fig.add_subplot(111)
 
@@ -179,15 +179,13 @@ class RegionEditorCanvas(FigureCanvasQTAgg):
         if d.which == "start":
             self._regions[i][0] = x
             ra.start_line.set_xdata([x, x])
-            xy = ra.span_patch.get_xy()
-            xy[0, 0] = xy[1, 0] = xy[4, 0] = x
-            ra.span_patch.set_xy(xy)
         else:
             self._regions[i][1] = x
             ra.end_line.set_xdata([x, x])
-            xy = ra.span_patch.get_xy()
-            xy[2, 0] = xy[3, 0] = x
-            ra.span_patch.set_xy(xy)
+
+        x0, x1 = self._regions[i]
+        ra.span_patch.set_x(x0)
+        ra.span_patch.set_width(x1 - x0)
 
         self.draw_idle()
 

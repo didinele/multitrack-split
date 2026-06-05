@@ -5,7 +5,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from ..downmix import create_analysis_downmix
 from ..features import extract_features
-from ..cache import save_cached_analysis
+from ..cache import get_cache_paths, load_cached_analysis, save_cached_analysis
 
 SR = 2000
 HOP_LENGTH = 200
@@ -19,20 +19,34 @@ class AnalysisWorker(QObject):
     def __init__(
         self,
         input_files: list[Path],
+        input_dir: Path,
         exclusions: list[str],
-        cache_data_path: "Path | None",
-        cache_meta_path: "Path | None",
+        no_cache: bool,
     ):
         super().__init__()
         self._input_files = input_files
+        self._input_dir = input_dir
         self._exclusions = exclusions
-        self._cache_data_path = cache_data_path
-        self._cache_meta_path = cache_meta_path
+        self._no_cache = no_cache
 
     @Slot()
     def run(self):
         downmix_path = None
         try:
+            cache_data_path = None
+            cache_meta_path = None
+
+            if not self._no_cache:
+                self.progress.emit("Computing cache hash...")
+                cache_data_path, cache_meta_path, _ = get_cache_paths(
+                    self._input_dir, self._input_files
+                )
+                if cache_data_path.exists():
+                    self.progress.emit("Loading cached features...")
+                    times, combined, rms_norm, onset_norm = load_cached_analysis(cache_data_path)
+                    self.finished.emit((times, combined, rms_norm, onset_norm))
+                    return
+
             self.progress.emit("Creating analysis downmix...")
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 downmix_path = Path(tmp.name)
@@ -44,11 +58,11 @@ class AnalysisWorker(QObject):
                 str(downmix_path), sr=SR, hop_length=HOP_LENGTH
             )
 
-            if self._cache_data_path is not None:
+            if cache_data_path is not None:
                 self.progress.emit("Saving cache...")
                 save_cached_analysis(
-                    self._cache_data_path,
-                    self._cache_meta_path,
+                    cache_data_path,
+                    cache_meta_path,
                     self._input_files,
                     self._exclusions,
                     SR,

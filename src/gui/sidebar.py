@@ -125,6 +125,11 @@ class SettingsSidebar(QWidget):
         form.addRow(self._rerun_btn)
         self._rerun_btn.clicked.connect(self.rerun_segmentation_requested)
 
+        restore_btn = QPushButton("Restore Defaults")
+        restore_btn.setToolTip("Reset all parameters to their default values (directories are unchanged)")
+        form.addRow(restore_btn)
+        restore_btn.clicked.connect(self._restore_defaults)
+
         scroll = QScrollArea()
         scroll.setWidget(content)
         scroll.setWidgetResizable(True)
@@ -181,8 +186,21 @@ class SettingsSidebar(QWidget):
     def set_rerun_enabled(self, enabled: bool):
         self._rerun_btn.setEnabled(enabled)
 
+    def _restore_defaults(self):
+        self._exclusions.clear()
+        self._start_thresh.setValue(0.3)
+        self._stop_thresh.setValue(0.1)
+        self._smooth_window.setValue(10)
+        self._min_active.setValue(60)
+        self._min_silence.setValue(30)
+        self._pre_pad.setValue(25)
+        self._post_pad.setValue(25)
+        self._no_cache.setChecked(False)
+
     def _load_settings(self):
         s = QSettings("wav-split", "wav-split")
+        if s.contains("input_dir"):
+            self._input_dir.setText(s.value("input_dir", ""))
         if s.contains("output_dir"):
             self._output_dir.setText(s.value("output_dir", ""))
         if s.contains("exclusions"):
@@ -207,6 +225,7 @@ class SettingsSidebar(QWidget):
     def save_settings(self):
         params = self.get_params()
         s = QSettings("wav-split", "wav-split")
+        s.setValue("input_dir", params["input_dir"])
         s.setValue("output_dir", params["output_dir"])
         s.setValue("exclusions", self._exclusions.text())
         s.setValue("start_thresh", params["start_thresh"])

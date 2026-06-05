@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -18,7 +19,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..cache import get_cache_paths, load_cached_analysis
 from ..downmix import get_audio_files
 from ..export import export_song, save_metadata
 from ..segmentation import (
@@ -33,6 +33,15 @@ from .sidebar import SettingsSidebar
 from .worker import SR, HOP_LENGTH, AnalysisWorker
 
 _FRAMES_PER_SEC = SR // HOP_LENGTH
+
+
+def _fmt_time(secs: float) -> str:
+    s = int(secs)
+    h, rem = divmod(s, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
 class MainWindow(QMainWindow):
@@ -68,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self._canvas = RegionEditorCanvas()
         self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._canvas.setMinimumSize(200, 150)
         right_layout.addWidget(self._canvas)
 
         self._toolbar = NavigationToolbar2QT(self._canvas, self)
@@ -111,9 +121,21 @@ class MainWindow(QMainWindow):
         self._sidebar.rerun_segmentation_requested.connect(self._on_rerun_segmentation)
         self._canvas.regions_changed.connect(self._update_region_info)
 
+        # --- Status bar progress indicator ---
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 0)  # indeterminate
+        self._progress_bar.setFixedWidth(180)
+        self._progress_bar.setFixedHeight(16)
+        self._progress_bar.setVisible(False)
+        self.statusBar().addPermanentWidget(self._progress_bar)
+
     def closeEvent(self, event):
         self._sidebar.save_settings()
         super().closeEvent(event)
+
+    def _set_loading(self, loading: bool):
+        self._progress_bar.setVisible(loading)
+        self._sidebar.set_run_enabled(not loading)
 
     # ------------------------------------------------------------------
     # Mode toggle
@@ -148,27 +170,14 @@ class MainWindow(QMainWindow):
 
         self._all_wavs = [Path(f) for f in glob.glob(str(input_dir / "*.[wW][aA][vV]"))]
         self._output_dir = output_dir
-        self._sidebar.set_run_enabled(False)
+        self._set_loading(True)
+        self.statusBar().showMessage("Starting analysis...")
 
-        cache_data_path: Optional[Path] = None
-        cache_meta_path: Optional[Path] = None
-
-        if not no_cache:
-            cache_data_path, cache_meta_path, _ = get_cache_paths(input_dir, input_files)
-            if cache_data_path.exists():
-                self.statusBar().showMessage("Cache hit — loading features...")
-                times, combined, rms_norm, onset_norm = load_cached_analysis(cache_data_path)
-                self._features = (times, combined, rms_norm, onset_norm)
-                self._sidebar.set_run_enabled(True)
-                self._on_rerun_segmentation()
-                return
-
-        self.statusBar().showMessage("Creating analysis downmix...")
         self._worker = AnalysisWorker(
             input_files=input_files,
+            input_dir=input_dir,
             exclusions=exclusions,
-            cache_data_path=cache_data_path,
-            cache_meta_path=cache_meta_path,
+            no_cache=no_cache,
         )
         self._thread = QThread()
         self._worker.moveToThread(self._thread)
@@ -186,12 +195,12 @@ class MainWindow(QMainWindow):
     def _on_worker_finished(self, result):
         times, combined, rms_norm, onset_norm = result
         self._features = (times, combined, rms_norm, onset_norm)
-        self._sidebar.set_run_enabled(True)
+        self._set_loading(False)
         self._on_rerun_segmentation()
 
     def _on_worker_error(self, message: str):
+        self._set_loading(False)
         self.statusBar().showMessage(f"Error: {message}")
-        self._sidebar.set_run_enabled(True)
 
     # ------------------------------------------------------------------
     # Segmentation (fast, runs on main thread)
@@ -230,10 +239,10 @@ class MainWindow(QMainWindow):
     def _update_region_info(self):
         regions = self._canvas.get_regions()
         if not regions:
-            self._region_info.setText("No regions detected.")
+            self._region_info.setText("")
             return
         parts = [
-            f"Song {i + 1}: {s:.1f}s–{e:.1f}s ({e - s:.1f}s)"
+            f"Song {i + 1}: {_fmt_time(s)} – {_fmt_time(e)}  ({_fmt_time(e - s)})"
             for i, (s, e) in enumerate(regions)
         ]
         self._region_info.setText("  |  ".join(parts))
