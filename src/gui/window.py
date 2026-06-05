@@ -2,8 +2,6 @@ import glob
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..downmix import get_audio_files
-from ..export import export_song, save_metadata
+from ..export import export_song
 from ..segmentation import (
     add_padding,
     apply_hysteresis,
@@ -28,12 +26,11 @@ from ..segmentation import (
     get_regions,
     smooth_features,
 )
-from .canvas import RegionEditorCanvas
+from .canvas import WaveformCanvas
 from .sidebar import SettingsSidebar
 from .worker import SR, HOP_LENGTH, AnalysisWorker
 
 _FRAMES_PER_SEC = SR // HOP_LENGTH
-
 
 def _fmt_time(secs: float) -> str:
     s = int(secs)
@@ -75,22 +72,8 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
 
-        self._canvas = RegionEditorCanvas()
-        self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._canvas.setMinimumSize(200, 150)
+        self._canvas = WaveformCanvas()
         right_layout.addWidget(self._canvas)
-
-        self._toolbar = NavigationToolbar2QT(self._canvas, self)
-        right_layout.addWidget(self._toolbar)
-
-        mode_bar = QHBoxLayout()
-        self._edit_btn = QPushButton("Edit Regions")
-        self._edit_btn.setCheckable(True)
-        self._edit_btn.setChecked(False)
-        self._edit_btn.toggled.connect(self._on_mode_toggled)
-        mode_bar.addWidget(self._edit_btn)
-        mode_bar.addStretch()
-        right_layout.addLayout(mode_bar)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
@@ -140,10 +123,6 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Mode toggle
     # ------------------------------------------------------------------
-
-    def _on_mode_toggled(self, checked: bool):
-        self._edit_btn.setText("Navigate" if checked else "Edit Regions")
-        self._canvas.set_edit_mode(checked, self._toolbar)
 
     # ------------------------------------------------------------------
     # Analysis
@@ -222,10 +201,7 @@ class MainWindow(QMainWindow):
         )
         final_regions = add_padding(extended_regions, params["pre_pad"], params["post_pad"], float(times[-1]))
 
-        self._canvas.update_visualization(
-            times, combined, smoothed, state,
-            raw_regions, extended_regions, ascension_spans, final_regions,
-        )
+        self._canvas.update_visualization(times, combined, final_regions)
 
         self._sidebar.set_rerun_enabled(True)
         self._confirm_btn.setEnabled(bool(final_regions))
@@ -265,7 +241,6 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 export_song(idx, region, self._output_dir, self._all_wavs)
 
-            save_metadata(confirmed_regions, self._output_dir)
             self._confirmed = True
             QMessageBox.information(
                 self,

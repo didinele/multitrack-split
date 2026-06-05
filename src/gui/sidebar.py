@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
 class SettingsSidebar(QWidget):
     run_analysis_requested = Signal()
     rerun_segmentation_requested = Signal()

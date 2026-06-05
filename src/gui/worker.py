@@ -10,7 +10,6 @@ from ..cache import get_cache_paths, load_cached_analysis, save_cached_analysis
 SR = 2000
 HOP_LENGTH = 200
 
-
 class AnalysisWorker(QObject):
     progress = Signal(str)
     finished = Signal(object)

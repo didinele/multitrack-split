@@ -2,192 +2,274 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
-from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 DRAG_THRESHOLD_PX = 8
 EPSILON = 1.0
+_PAD_TOP = 8
+_PAD_BOTTOM = 28
+
+_PALETTE = np.array([
+    [30,  30,  30,  255],  # 0 — background
+    [90,  90,  90,  255],  # 1 — inactive bar
+    [80,  160, 240, 255],  # 2 — active (in-region) bar
+], dtype=np.uint8)
+
+_BG = QColor(30, 30, 30)
+_HANDLE = QColor(220, 60, 60)
+_AXIS_FG = QColor(150, 150, 150)
 
 
-@dataclass
-class RegionArtists:
-    idx: int
-    start_line: Line2D
-    end_line: Line2D
-    span_patch: object
+def _fmt_axis(secs: float) -> str:
+    s = int(secs)
+    h, rem = divmod(s, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
 @dataclass
 class DragState:
     region_idx: int
     which: str  # "start" or "end"
-    x_min: float
-    x_max: float
+    t_min: float
+    t_max: float
 
 
-class RegionEditorCanvas(FigureCanvasQTAgg):
+class WaveformCanvas(QWidget):
     regions_changed = Signal()
 
-    def __init__(self):
-        fig = Figure(figsize=(6, 4), tight_layout=True)
-        super().__init__(fig)
-        self._ax = fig.add_subplot(111)
-
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._times: Optional[np.ndarray] = None
+        self._combined: Optional[np.ndarray] = None
         self._regions: list[list[float]] = []
-        self._region_artists: list[RegionArtists] = []
         self._drag: Optional[DragState] = None
-        self._edit_mode = False
-        self._cid_press: Optional[int] = None
-        self._cid_motion: Optional[int] = None
-        self._cid_release: Optional[int] = None
 
-    def update_visualization(
-        self,
-        times: np.ndarray,
-        combined: np.ndarray,
-        smoothed: np.ndarray,
-        state: np.ndarray,
-        raw_regions: list,
-        extended_regions: list,
-        ascension_spans: list,
-        regions: list,
-    ):
+        # Caches — invalidated on resize or data change, reused across drags
+        self._bucket_cache: Optional[np.ndarray] = None
+        self._bucket_cache_w: int = 0
+        self._active_cache: Optional[np.ndarray] = None
+        self._active_cache_sz: tuple[int, int] = (0, 0)
+
+        self.setMinimumSize(200, 100)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMouseTracking(True)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def update_visualization(self, times: np.ndarray, combined: np.ndarray, regions: list):
         self._times = times
+        self._combined = combined
         self._regions = [list(r) for r in regions]
-        self._region_artists = []
+        self._invalidate_waveform_cache()
+        self.update()
 
-        self._ax.clear()
-        self._draw_static_layers(combined, smoothed, state, raw_regions, extended_regions, ascension_spans)
-        self._draw_region_artists()
-        self.draw_idle()
-
-    def _draw_static_layers(
-        self,
-        combined: np.ndarray,
-        smoothed: np.ndarray,
-        state: np.ndarray,
-        raw_regions: list,
-        extended_regions: list,
-        ascension_spans: list,
-    ):
-        ax = self._ax
-        times = self._times
-
-        ax.plot(times, combined, alpha=0.25, color="gray", label="Combined Features")
-        ax.plot(times, smoothed, color="blue", linewidth=1.5, label="Smoothed Features")
-
-        state_curve = state.astype(float) * np.max(smoothed) * 1.05
-        ax.plot(times, state_curve, color="green", alpha=0.65, label="Hysteresis State")
-
-        for i, (raw_start, raw_end) in enumerate(raw_regions):
-            ax.axvline(raw_start, color="orange", linestyle=":", linewidth=1,
-                       label="Raw Region" if i == 0 else "")
-            ax.axvline(raw_end, color="orange", linestyle=":", linewidth=1)
-
-        for i, (old_start, new_start) in enumerate(ascension_spans):
-            ax.axvspan(old_start, new_start, color="yellow", alpha=0.25,
-                       label="Ascension Extension" if i == 0 else "")
-            ax.axvline(old_start, color="gold", linestyle="-.", linewidth=1)
-            ax.axvline(new_start, color="gold", linestyle="-", linewidth=1)
-
-        for i, (ext_start, ext_end) in enumerate(extended_regions):
-            ax.axvspan(ext_start, ext_end, color="red", alpha=0.05,
-                       label="Pre-pad Region" if i == 0 else "")
-
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Normalized Amplitude")
-        ax.set_title('Audio Segmentation — enable "Edit Regions" mode, then drag red boundaries')
-        ax.legend(loc="upper left", fontsize="small")
-
-    def _draw_region_artists(self):
-        ax = self._ax
-        for i, (start, end) in enumerate(self._regions):
-            span = ax.axvspan(start, end, color="red", alpha=0.15,
-                              label="Final Region" if i == 0 else "")
-            s_line = ax.axvline(start, color="red", linestyle="--", linewidth=1.5)
-            e_line = ax.axvline(end, color="red", linestyle="--", linewidth=1.5)
-            self._region_artists.append(RegionArtists(
-                idx=i, start_line=s_line, end_line=e_line, span_patch=span,
-            ))
-
-    def set_edit_mode(self, enabled: bool, toolbar: NavigationToolbar2QT):
-        self._edit_mode = enabled
-        if enabled:
-            mode = toolbar.mode
-            if hasattr(mode, "name"):
-                if mode.name == "PAN":
-                    toolbar.pan()
-                elif mode.name == "ZOOM":
-                    toolbar.zoom()
-            self._cid_press = self.mpl_connect("button_press_event", self._on_press)
-            self._cid_motion = self.mpl_connect("motion_notify_event", self._on_motion)
-            self._cid_release = self.mpl_connect("button_release_event", self._on_release)
-        else:
-            for cid in (self._cid_press, self._cid_motion, self._cid_release):
-                if cid is not None:
-                    self.mpl_disconnect(cid)
-            self._cid_press = self._cid_motion = self._cid_release = None
-            self._drag = None
-
-    def _hit_threshold_in_data(self) -> float:
-        inv = self._ax.transData.inverted()
-        p0 = inv.transform((0, 0))
-        p1 = inv.transform((DRAG_THRESHOLD_PX, 0))
-        return abs(p1[0] - p0[0])
-
-    def _on_press(self, event):
-        if event.inaxes is not self._ax or event.button != 1 or event.xdata is None:
-            return
-        threshold = self._hit_threshold_in_data()
-        max_time = float(self._times[-1]) if self._times is not None else 0.0
-
-        for i, _ in enumerate(self._region_artists):
-            start, end = self._regions[i]
-
-            if abs(event.xdata - start) < threshold:
-                prev_end = self._regions[i - 1][1] if i > 0 else 0.0
-                self._drag = DragState(i, "start", prev_end + EPSILON, end - EPSILON)
-                return
-
-            if abs(event.xdata - end) < threshold:
-                next_start = self._regions[i + 1][0] if i < len(self._regions) - 1 else max_time
-                self._drag = DragState(i, "end", start + EPSILON, next_start - EPSILON)
-                return
-
-    def _on_motion(self, event):
-        if self._drag is None or event.xdata is None:
-            return
-        self._apply_drag(event.xdata)
-
-    def _on_release(self, event):
-        if self._drag is None:
-            return
-        if event.xdata is not None:
-            self._apply_drag(event.xdata)
-        self._drag = None
-        self.regions_changed.emit()
-
-    def _apply_drag(self, raw_x: float):
-        d = self._drag
-        x = max(d.x_min, min(d.x_max, raw_x))
-        i = d.region_idx
-        ra = self._region_artists[i]
-
-        if d.which == "start":
-            self._regions[i][0] = x
-            ra.start_line.set_xdata([x, x])
-        else:
-            self._regions[i][1] = x
-            ra.end_line.set_xdata([x, x])
-
-        x0, x1 = self._regions[i]
-        ra.span_patch.set_x(x0)
-        ra.span_patch.set_width(x1 - x0)
-
-        self.draw_idle()
+    def set_regions(self, regions: list):
+        self._regions = [list(r) for r in regions]
+        self.update()
 
     def get_regions(self) -> list[tuple[float, float]]:
         return [(r[0], r[1]) for r in self._regions]
+
+    # ------------------------------------------------------------------
+    # Coordinate helpers
+    # ------------------------------------------------------------------
+
+    def _t_to_x(self, t: float) -> float:
+        t0, t1 = float(self._times[0]), float(self._times[-1])
+        return (t - t0) / (t1 - t0) * self.width()
+
+    def _x_to_t(self, x: float) -> float:
+        t0, t1 = float(self._times[0]), float(self._times[-1])
+        return t0 + (x / self.width()) * (t1 - t0)
+
+    # ------------------------------------------------------------------
+    # Waveform caches
+    # ------------------------------------------------------------------
+
+    def _invalidate_waveform_cache(self):
+        self._bucket_cache = None
+        self._bucket_cache_w = 0
+        self._active_cache = None
+        self._active_cache_sz = (0, 0)
+
+    def _get_buckets(self, w: int) -> np.ndarray:
+        if self._bucket_cache is not None and self._bucket_cache_w == w:
+            return self._bucket_cache
+
+        data = self._combined
+        if data is None or len(data) == 0:
+            result = np.zeros(w)
+        else:
+            n = len(data)
+            edges = np.linspace(0, n, w + 1).astype(int)
+            starts = edges[:-1]
+            unique = np.concatenate(([True], starts[1:] > starts[:-1]))
+            if unique.all():
+                result = np.maximum.reduceat(data, starts).astype(float)
+            else:
+                result = np.interp(np.linspace(0, n - 1, w), np.arange(n), data)
+            mx = result.max()
+            if mx > 0:
+                result /= mx
+
+        self._bucket_cache = result
+        self._bucket_cache_w = w
+        return result
+
+    def _get_active(self, w: int, wave_h: int) -> np.ndarray:
+        """(wave_h, w) bool — True where a waveform bar pixel should be drawn."""
+        if self._active_cache is not None and self._active_cache_sz == (w, wave_h):
+            return self._active_cache
+
+        buckets = self._get_buckets(w)
+        bar_h = np.maximum(1, (buckets * wave_h).astype(int))
+        y = np.arange(wave_h)[:, np.newaxis]          # (H, 1)
+        thresh = (wave_h - bar_h)[np.newaxis, :]      # (1, W)
+        active = y >= thresh                           # (H, W)
+
+        self._active_cache = active
+        self._active_cache_sz = (w, wave_h)
+        return active
+
+    # ------------------------------------------------------------------
+    # Paint
+    # ------------------------------------------------------------------
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        w, h = self.width(), self.height()
+        wave_h = max(1, h - _PAD_TOP - _PAD_BOTTOM)
+
+        painter.fillRect(0, 0, w, h, _BG)
+
+        if self._times is None:
+            painter.end()
+            return
+
+        # Region mask: which x-columns are inside a confirmed region
+        region_mask = np.zeros(w, dtype=bool)
+        for r0, r1 in self._regions:
+            x0 = max(0, int(self._t_to_x(r0)))
+            x1 = min(w, int(self._t_to_x(r1)))
+            region_mask[x0:x1] = True
+
+        # Build category array then map through the palette LUT
+        active = self._get_active(w, wave_h)           # (H, W) bool — cached
+        rm = region_mask[np.newaxis, :]                # (1, W)
+
+        category = np.zeros((wave_h, w), dtype=np.uint8)
+        category[active & ~rm] = 1
+        category[active & rm] = 2
+
+        img_arr = _PALETTE[category]                   # (H, W, 4) — C-contiguous
+        img = QImage(img_arr.data, w, wave_h, w * 4, QImage.Format.Format_RGBA8888)
+        painter.drawImage(0, _PAD_TOP, img)
+
+        # Region boundary handles
+        pen = QPen(_HANDLE)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        for r0, r1 in self._regions:
+            x0 = round(self._t_to_x(r0))
+            x1 = round(self._t_to_x(r1))
+            painter.drawLine(x0, _PAD_TOP, x0, _PAD_TOP + wave_h)
+            painter.drawLine(x1, _PAD_TOP, x1, _PAD_TOP + wave_h)
+
+        self._draw_time_axis(painter, w, h, _PAD_TOP + wave_h)
+        painter.end()
+
+    def _draw_time_axis(self, painter: QPainter, w: int, h: int, y_base: int):
+        t0, t1 = float(self._times[0]), float(self._times[-1])
+        duration = t1 - t0
+        target = max(4, w // 120)
+        raw = duration / target
+        interval = 1
+        for iv in [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]:
+            interval = iv
+            if iv >= raw:
+                break
+
+        painter.setPen(QPen(_AXIS_FG))
+        font = QFont()
+        font.setPointSize(8)
+        painter.setFont(font)
+
+        t = (int(t0 / interval) + 1) * interval
+        while t <= t1:
+            x = round(self._t_to_x(t))
+            painter.drawLine(x, y_base, x, y_base + 4)
+            painter.drawText(x - 22, y_base + 6, 44, 18,
+                             Qt.AlignmentFlag.AlignCenter, _fmt_axis(t))
+            t += interval
+
+    # ------------------------------------------------------------------
+    # Resize — invalidate bucket/active caches
+    # ------------------------------------------------------------------
+
+    def resizeEvent(self, event):
+        self._invalidate_waveform_cache()
+        super().resizeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Mouse events — drag handles
+    # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event):
+        if self._times is None:
+            return
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+
+        px = event.position().x()
+        best_dist = DRAG_THRESHOLD_PX + 1
+        best_idx, best_which = -1, ""
+
+        for i, (r0, r1) in enumerate(self._regions):
+            for which, bx in (("start", self._t_to_x(r0)), ("end", self._t_to_x(r1))):
+                d = abs(px - bx)
+                if d < best_dist:
+                    best_dist, best_idx, best_which = d, i, which
+
+        if best_idx < 0:
+            return
+
+        if best_which == "start":
+            t_min = self._regions[best_idx - 1][1] + EPSILON if best_idx > 0 else float(self._times[0])
+            t_max = self._regions[best_idx][1] - EPSILON
+        else:
+            t_min = self._regions[best_idx][0] + EPSILON
+            t_max = (self._regions[best_idx + 1][0] - EPSILON
+                     if best_idx < len(self._regions) - 1 else float(self._times[-1]))
+
+        self._drag = DragState(best_idx, best_which, t_min, t_max)
+
+    def mouseMoveEvent(self, event):
+        if self._times is None:
+            return
+        px = event.position().x()
+        if self._drag is not None:
+            t = max(self._drag.t_min, min(self._drag.t_max, self._x_to_t(px)))
+            i = self._drag.region_idx
+            if self._drag.which == "start":
+                self._regions[i][0] = t
+            else:
+                self._regions[i][1] = t
+            self.update()
+        else:
+            for r0, r1 in self._regions:
+                if (abs(px - self._t_to_x(r0)) <= DRAG_THRESHOLD_PX or
+                        abs(px - self._t_to_x(r1)) <= DRAG_THRESHOLD_PX):
+                    self.setCursor(Qt.CursorShape.SizeHorCursor)
+                    return
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def mouseReleaseEvent(self, event):
+        if self._drag is None:
+            return
+        self._drag = None
+        self.regions_changed.emit()
