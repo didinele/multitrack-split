@@ -134,6 +134,8 @@ class SettingsSidebar(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addRow(scroll)
 
+        self._load_settings()
+
     def _make_dir_row(self, line_edit: QLineEdit) -> QWidget:
         container = QWidget()
         row = QHBoxLayout(container)
@@ -178,3 +180,40 @@ class SettingsSidebar(QWidget):
 
     def set_rerun_enabled(self, enabled: bool):
         self._rerun_btn.setEnabled(enabled)
+
+    def _load_settings(self):
+        s = QSettings("wav-split", "wav-split")
+        if s.contains("output_dir"):
+            self._output_dir.setText(s.value("output_dir", ""))
+        if s.contains("exclusions"):
+            self._exclusions.setText(s.value("exclusions", ""))
+        if s.contains("start_thresh"):
+            self._start_thresh.setValue(float(s.value("start_thresh", 0.3)))
+        if s.contains("stop_thresh"):
+            self._stop_thresh.setValue(float(s.value("stop_thresh", 0.1)))
+        if s.contains("smooth_windows_sec"):
+            self._smooth_window.setValue(int(s.value("smooth_windows_sec", 10)))
+        if s.contains("min_active_sec"):
+            self._min_active.setValue(int(s.value("min_active_sec", 60)))
+        if s.contains("min_silence_sec"):
+            self._min_silence.setValue(int(s.value("min_silence_sec", 30)))
+        if s.contains("pre_pad"):
+            self._pre_pad.setValue(int(s.value("pre_pad", 25)))
+        if s.contains("post_pad"):
+            self._post_pad.setValue(int(s.value("post_pad", 25)))
+        if s.contains("no_cache"):
+            self._no_cache.setChecked(s.value("no_cache", False, type=bool))
+
+    def save_settings(self):
+        params = self.get_params()
+        s = QSettings("wav-split", "wav-split")
+        s.setValue("output_dir", params["output_dir"])
+        s.setValue("exclusions", self._exclusions.text())
+        s.setValue("start_thresh", params["start_thresh"])
+        s.setValue("stop_thresh", params["stop_thresh"])
+        s.setValue("smooth_windows_sec", params["smooth_windows_sec"])
+        s.setValue("min_active_sec", params["min_active_sec"])
+        s.setValue("min_silence_sec", params["min_silence_sec"])
+        s.setValue("pre_pad", params["pre_pad"])
+        s.setValue("post_pad", params["post_pad"])
+        s.setValue("no_cache", params["no_cache"])

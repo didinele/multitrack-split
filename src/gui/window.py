@@ -39,7 +39,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("wav-split")
-        self.resize(1400, 750)
+        self.resize(1100, 620)
 
         self._features: Optional[tuple] = None
         self._all_wavs: list[Path] = []
@@ -85,15 +85,16 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 800])
 
         # --- Bottom bar ---
         bottom = QHBoxLayout()
-        self._region_info = QLabel("Run analysis to detect regions.")
+        self._region_info = QLabel("")
         self._region_info.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         bottom.addWidget(self._region_info)
         bottom.addStretch()
 
-        cancel_btn = QPushButton("Cancel (no export)")
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.close)
         bottom.addWidget(cancel_btn)
 
@@ -109,6 +110,10 @@ class MainWindow(QMainWindow):
         self._sidebar.run_analysis_requested.connect(self._on_run_analysis)
         self._sidebar.rerun_segmentation_requested.connect(self._on_rerun_segmentation)
         self._canvas.regions_changed.connect(self._update_region_info)
+
+    def closeEvent(self, event):
+        self._sidebar.save_settings()
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Mode toggle
