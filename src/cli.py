@@ -7,6 +7,5 @@ def split():
     from .gui import launch
     launch()
 
-
 if __name__ == "__main__":
     app()

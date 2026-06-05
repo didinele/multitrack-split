@@ -1,133 +1,102 @@
 # Multitrack Splitter
 
-A CLI tool to detect and segment songs from long multitrack live recordings.
+A GUI tool to detect and segment songs from long multitrack live recordings.
 
 ## Usage
 
-Run the split command with the input folder containing WAV tracks and the output folder for segmented songs.
-
 ```bash
-python -m src.cli split /path/to/multitrack-session /path/to/output-folder
+python -m src.cli split
 ```
 
-This command will:
+This opens an interactive window where you pick your input/output folders, tune parameters, and review the detected song regions before exporting.
 
-- discover the usable WAV files in the input folder
-- build a low-rate analysis downmix
-- compute smoothed feature curves for energy-based segmentation
-- apply dual-threshold hysteresis to find sustained song regions
-- extend song starts for ascending intro energy
-- export each song into `01`, `02`, etc.
-- save `debug.png` in the output folder for visual verification
+## Workflow
 
-## CLI Options
+1. **Select folders** — pick the input directory (containing multitrack WAV stems) and the output directory for segmented songs.
+2. **Run Analysis** — the tool builds a low-rate analysis downmix, extracts energy/onset features, and caches the result for fast iteration. This is the slow step (~seconds to minutes depending on recording length and disk speed).
+3. **Review regions** — the waveform canvas shows the audio with detected song regions highlighted. Drag the red boundary handles to adjust any region's start or end time.
+4. **Re-run Segmentation** — tweak any parameter and click this to instantly re-apply the heuristics without re-analysing the audio.
+5. **Confirm & Export** — exports each song as a numbered folder (`01/`, `02/`, …) containing one trimmed WAV per input stem.
 
-Note that all the following defaults were chosen based on common sense and testing with live recordings used by the
-author. Your audio files may require vastly different settings. It is highly recommended to inspect the `debug.png` output
-to better understand how the algorithm is interpreting your audio and to adjust the following parameters accordingly.
+Closing the window or clicking Cancel at any point exits without writing any files.
 
-### `--exclusions`
-Default: `['click']`
+## Parameters
 
-Keywords used to exclude stems from the analysis downmix. You may want to use this to remove tracks that might produce
-sustained energy, but are not reliable indicators of song presence within your recordings (e.g. a click track running
-for minutes on end before the musical moment actually starts, a drone track, or a noisy signal).
+All parameters live in the GUI sidebar and are persisted between sessions.
 
-Note that the exclusion is rather naive and simply checks if the specified keywords (lowercased) are present
-in any of the filenames (lowercased). If a file matches any of the keywords, it is excluded from the downmix used for segmentation, but it will still be copied to the output folder for each song.
+### Exclusions
+Default: `click`
 
-### `--start-thresh`
-Default: `0.3`
+Comma-separated keywords. Any input file whose name contains one of these (case-insensitive) is excluded from the analysis mix. Useful for tracks like click or drone that carry sustained energy unrelated to musical activity. Excluded stems are still exported for each song.
 
-The upper hysteresis (0.0 to 1.0) threshold that triggers the tool to enter an active song region.
+### Start threshold
+Default: `0.3` (range 0.0–1.0)
 
-0.3 is a sensible default from my testing, but the correct value can vary widely based on recording. If the tool is
-not behaving as you expect, analyze the `debug.png` chart and adjust this threshold accordingly.
+The normalised signal level the smoothed feature curve must rise above to open a song region (upper hysteresis threshold).
 
-### `--stop-thresh`
-Default: `0.1`
+### Stop threshold
+Default: `0.1` (range 0.0–1.0)
 
-The lower hysteresis (0.0 to 1.0) threshold that triggers exiting an active song region.
+The level the smoothed curve must fall below to close a song region (lower hysteresis threshold). Should be less than or equal to the start threshold.
 
-Note that you almost certainly do not want this to be higher than `--start-thresh`.
+### Smooth window
+Default: `10 s`
 
-### `--smooth-windows-sec`
-Default: `10`
+Moving-average window applied to the combined RMS + onset feature before thresholding. Larger values produce a more stable curve that ignores short spikes; smaller values are more responsive but may cause false splits in dynamic recordings.
 
-When downmixing the multitrack session to a single analysis signal, the tool applies a moving average smoothing to create
-a more stable curve for thresholding. This parameter controls the size of the smoothing window in seconds.
+### Min active
+Default: `60 s`
 
-Larger values will create a smoother curve that is less sensitive to short transient spikes. Smaller values will create
-a more responsive curve that may be more accurate for tight segues, but it can also create more false splits if the
-recording is noisy or has a lot of dynamic variation within songs.
+Minimum duration for a detected region to be kept. Raise this to suppress false positives from brief noise bursts like tuning or sound-check activity.
 
-### `--min-active-sec`
-Default: `60`
+### Min silence
+Default: `30 s`
 
-The minimum duration required for a detected region to be considered a song.
+Minimum gap between two songs. Raise this if the tool merges songs that are close together; lower it if it misses splits between back-to-back songs.
 
-Raising this can be helpful in eliminating false positives from short noise bursts like tuning, soundchecks, etc.
-You'd naturally want to set this lower if you are working with short songs.
+### Pre-pad / Post-pad
+Default: `25 s` each
 
-### `--min-silence-sec`
-Default: `30`
+Seconds added unconditionally before and after each detected boundary. A safety margin to ensure song intros and tails are not clipped by the energy-based boundary.
 
-The minimum silence gap needed to split two songs.
+### Ignore cache
+Default: off
 
-Raising this can be helpful to prevent false splits from brief quiet moments within a song, but it can also cause
-the tool to merge two distinct songs into one if they are spaced closely together.
+When checked, forces a full re-analysis even if a cached result for the current input exists.
 
-### `--pre-pad`
-Default: `25`
+## Caching
 
-Since all tuning can be a double-edged sword (improving certain tracks in your recording, making it worse for others),
-the tuning options provide a way to forcefully extend the detected song boundaries in a way that is not influenced by the audio content. This can be useful to ensure that the intro or tail of a song is preserved, even if the energy-based analysis fails to capture it.
+After the first analysis run, the extracted features are cached keyed by a SHA-256 hash of the input files. Subsequent runs with the same inputs skip the downmix and feature extraction entirely and load from cache, making parameter iteration fast regardless of recording length.
 
-### `--post-pad`
-Default: `25`
+On an M3 Pro MacBook with ~19 GB of audio (10 stems):
 
-Since all tuning can be a double-edged sword (improving certain tracks in your recording, making it worse for others),
-the tuning options provide a way to forcefully extend the detected song boundaries in a way that is not influenced by the audio content. This can be useful to ensure that the intro or tail of a song is preserved, even if the energy-based analysis fails to capture it.
+| Scenario | Time |
+|---|---|
+| Cold run, cache disabled | ~26 s |
+| Cold run, cache enabled | ~37 s |
+| Cache hit | ~12 s |
 
-### `--no-output`
-Default: `False`
+## Output
 
-When set, the tool runs the full analysis and still saves the debug chart, but it skips writing segmented WAVs and metadata.
+Each confirmed song is exported to a numbered subdirectory of the output folder:
 
-Useful when you want to quickly iterate the analysis parameters and visually verify the results without waiting for the
-export process, which is I/O bound and potentially slow.
+```
+output/
+  01/
+    bass.wav
+    drums.wav
+    guitar.wav
+    ...
+  02/
+    ...
+```
 
-### `--no-cache`
-Default: `False`
+All stems are trimmed to exactly the confirmed region boundaries.
 
-When set, the tool ignores cached analysis and recomputes the downmix and audio features from scratch.
+## Backlog
 
-As a sort of example of the cache optimizations, on my MacBook M3 Pro, the runtime of the tool on ~19GBs of audio,
-(made up of 10 tracks) is around 37 seconds on a cold run with caching enabled.
-
-As the cache is deeply safe (it ensures the input is absolutely identical - it's up for discussion whether this is worth
-it, or is behavior that should perhaps be configurable via an option), providing `--no-cache` lowers the runtime down
-to around 26 seconds.
-
-This is a significant improvement, but if we now look at a run with a cache hit, the runtime is down to 12 seconds.
-I cannot currently confirm if this behavior scales perfectly with the size of the input (and disk read speeds could
-make the current caching algorithm terrible on your system), but it is clear that the caching mechanism, even in its
-current form, provides a significant speed boost when iterating on the analysis parameters without changing the input
-files.
-
-That being said, if you have a particularly large input and are confident you can one-shot the settings, providing `--no-cache` will significantly speed up the runtime, but the results are diminished even within 3 total runs.
-
-## Output and Debugging
-
-The tool always generates `debug.png` in the output folder.
-
-The chart shows:
-
-- the combined energy/onset analysis signal
-- the smoothed feature curve used for thresholding
-- the binary hysteresis state
-- raw candidate region boundaries
-- detected ascending intro extensions
-- final padded export regions
-
-This visual output is the primary way to verify how the algorithm interpreted the signal and where song boundaries were placed.
+- [ ] Implement a system for previewing the downmixed analysis track, to aid with tuning. A big consideration here
+is that the sample rate on the downmix is very low, probably unfit to use for preview, but naively raising it
+potentially leads to much costier analysis. The options need to be investigated thoroughly.
+- [ ] Completely rid of all CLI aspects, you just run the GUI app directly.
+- [ ] Look into bundling the app fully to remove the need for a Python runtime installed.
