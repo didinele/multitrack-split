@@ -2,8 +2,9 @@ import glob
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
+    QFrame,
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QScrollArea,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -83,9 +85,15 @@ class MainWindow(QMainWindow):
         # --- Bottom bar ---
         bottom = QHBoxLayout()
         self._region_info = QLabel("")
-        self._region_info.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        bottom.addWidget(self._region_info)
-        bottom.addStretch()
+        info_scroll = QScrollArea()
+        info_scroll.setWidget(self._region_info)
+        info_scroll.setWidgetResizable(False)
+        info_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        info_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        info_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        info_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        info_scroll.setFixedHeight(24)
+        bottom.addWidget(info_scroll)
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.close)
@@ -216,12 +224,14 @@ class MainWindow(QMainWindow):
         regions = self._canvas.get_regions()
         if not regions:
             self._region_info.setText("")
+            self._region_info.adjustSize()
             return
         parts = [
             f"Song {i + 1}: {_fmt_time(s)} – {_fmt_time(e)}  ({_fmt_time(e - s)})"
             for i, (s, e) in enumerate(regions)
         ]
         self._region_info.setText("  |  ".join(parts))
+        self._region_info.adjustSize()
 
     # ------------------------------------------------------------------
     # Export

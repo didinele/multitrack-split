@@ -100,3 +100,7 @@ is that the sample rate on the downmix is very low, probably unfit to use for pr
 potentially leads to much costier analysis. The options need to be investigated thoroughly.
 - [ ] Completely rid of all CLI aspects, you just run the GUI app directly.
 - [ ] Look into bundling the app fully to remove the need for a Python runtime installed.
+- [ ] Investigate being able to configure the cache type. If all is feasible, we would default to a much lighter cache
+that does not involve the contents of all files, MASSIVELY increasing performance. Users would be able to opt into
+the cache system of today in case they, for some reason, were constantly messing with their input directory in
+very specific ways (e.g. replacing a file witwh one with virtually identical metadata, but somewhere different audio)

@@ -114,15 +114,16 @@ class SettingsSidebar(QWidget):
 
         form.addRow(self._separator())
 
-        self._run_btn = QPushButton("Run Analysis")
-        form.addRow(self._run_btn)
-        self._run_btn.clicked.connect(self.run_analysis_requested)
-
         self._rerun_btn = QPushButton("Re-run Segmentation")
         self._rerun_btn.setEnabled(False)
-        self._rerun_btn.setToolTip("Re-apply segmentation heuristics using current parameters (fast — no re-analysis)")
+        self._rerun_btn.setToolTip("Re-apply segmentation heuristics using current parameters (fast — no re-analysis needed)")
         form.addRow(self._rerun_btn)
         self._rerun_btn.clicked.connect(self.rerun_segmentation_requested)
+
+        self._run_btn = QPushButton("Run Analysis")
+        self._run_btn.setToolTip("Re-analyse only when input files have changed — use Re-run Segmentation to adjust parameters")
+        form.addRow(self._run_btn)
+        self._run_btn.clicked.connect(self.run_analysis_requested)
 
         restore_btn = QPushButton("Restore Defaults")
         restore_btn.setToolTip("Reset all parameters to their default values (directories are unchanged)")
