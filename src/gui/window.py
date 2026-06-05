@@ -46,7 +46,7 @@ def _fmt_time(secs: float) -> str:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("wav-split")
+        self.setWindowTitle("multitrack-split")
         self.resize(1100, 620)
 
         self._features: Optional[tuple] = None

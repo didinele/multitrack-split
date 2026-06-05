@@ -198,7 +198,7 @@ class SettingsSidebar(QWidget):
         self._no_cache.setChecked(False)
 
     def _load_settings(self):
-        s = QSettings("wav-split", "wav-split")
+        s = QSettings("multitrack-split", "multitrack-split")
         if s.contains("input_dir"):
             self._input_dir.setText(s.value("input_dir", ""))
         if s.contains("output_dir"):
@@ -224,7 +224,7 @@ class SettingsSidebar(QWidget):
 
     def save_settings(self):
         params = self.get_params()
-        s = QSettings("wav-split", "wav-split")
+        s = QSettings("multitrack-split", "multitrack-split")
         s.setValue("input_dir", params["input_dir"])
         s.setValue("output_dir", params["output_dir"])
         s.setValue("exclusions", self._exclusions.text())

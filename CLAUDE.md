@@ -30,7 +30,7 @@ The tool opens a PySide6 GUI (`src/gui/`) that drives a two-phase pipeline:
 `WaveformCanvas` is a plain `QWidget` (no matplotlib). It renders the waveform by downsampling the `combined` feature array into pixel-width buckets via `np.maximum.reduceat`, then builds a `QImage` from a numpy palette LUT in `paintEvent`. The `_active_cache` (which rows are "on" per column) is recomputed only on resize or new data — drags only recompute the region mask, keeping repaints fast. Drag handles are always active; hit-testing and clamping are done entirely in Qt mouse events.
 
 **Sidebar (`sidebar.py`):**
-All parameters (dirs, thresholds, padding, exclusions, no-cache) live here. Settings are persisted via `QSettings("wav-split", "wav-split")` on close, including `input_dir`.
+All parameters (dirs, thresholds, padding, exclusions, no-cache) live here. Settings are persisted via `QSettings("multitrack-split", "multitrack-split")` on close, including `input_dir`.
 
 **Export (`export.py`):**
 `export_song` trims every input stem to the confirmed region using `ffmpeg -ss / -t / -c copy` (no re-encoding), running stems in parallel via `ThreadPoolExecutor`. Futures must be awaited with `.result()` to surface exceptions.
@@ -42,7 +42,7 @@ All parameters (dirs, thresholds, padding, exclusions, no-cache) live here. Sett
 
 ## Cache
 
-Lives in `<input_dir>/.wav_split_cache/`. Key = SHA-256 of all input file contents + names + sizes + mtimes. Cache check (hashing) runs inside the worker thread to avoid blocking the GUI. Invalidate with the "Ignore cache" checkbox.
+Lives in `<input_dir>/.multitrack_split_cache/`. Key = SHA-256 of all input file contents + names + sizes + mtimes. Cache check (hashing) runs inside the worker thread to avoid blocking the GUI. Invalidate with the "Ignore cache" checkbox.
 
 ## Windows-specific notes
 

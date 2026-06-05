@@ -49,7 +49,7 @@ def compute_input_hash(file_paths: list[Path]) -> str:
     return cache_hash
 
 def get_cache_paths(input_dir: Path, file_paths: list[Path]) -> tuple[Path, Path, str]:
-    cache_dir = input_dir / ".wav_split_cache"
+    cache_dir = input_dir / ".multitrack_split_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Using cache directory: {cache_dir}")
