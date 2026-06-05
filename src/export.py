@@ -25,8 +25,10 @@ def export_song(song_idx: int, region: tuple[float, float], output_dir: Path, al
 
     # Run exports concurrently for this song's tracks
     with ThreadPoolExecutor() as executor:
-        for wav in all_input_wavs:
-            executor.submit(export_segment_for_file, wav, song_dir, start_time, duration)
+        futures = [executor.submit(export_segment_for_file, wav, song_dir, start_time, duration) for wav in all_input_wavs]
+
+    for future in futures:
+        future.result()
 
 def save_metadata(regions: list[tuple[float, float]], output_dir: Path):
     metadata = {"songs": []}

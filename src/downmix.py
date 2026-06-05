@@ -5,7 +5,7 @@ from pathlib import Path
 import ffmpeg
 
 def get_audio_files(input_dir: Path, exclusions: list[str]) -> list[Path]:
-    all_files = glob(str(input_dir / "*.wav")) + glob(str(input_dir / "*.WAV"))
+    all_files = glob(str(input_dir / "*.[wW][aA][vV]"))
     valid_files = []
     
     for f in sorted(all_files):

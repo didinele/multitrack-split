@@ -9,7 +9,7 @@ from .downmix import create_analysis_downmix, get_audio_files
 from .features import extract_features
 from .segmentation import smooth_features, apply_hysteresis, get_regions, extend_regions_for_ascending_start, add_padding
 from .export import export_song, save_metadata
-from .viz import plot_debug
+from .plot import plot_debug
 
 app = typer.Typer(help="Multitrack Splitter: A CLI tool to detect and segment songs from long multitrack live recordings.")
 
