@@ -5,7 +5,7 @@ A GUI tool to detect and segment songs from long multitrack live recordings.
 ## Usage
 
 ```bash
-python -m src.cli split
+python -m src.cli
 ```
 
 This opens an interactive window where you pick your input/output folders, tune parameters, and review the detected song regions before exporting.
@@ -59,22 +59,16 @@ Default: `25 s` each
 
 Seconds added unconditionally before and after each detected boundary. A safety margin to ensure song intros and tails are not clipped by the energy-based boundary.
 
-### Ignore cache
-Default: off
-
-When checked, forces a full re-analysis even if a cached result for the current input exists.
-
 ## Caching
 
-After the first analysis run, the extracted features are cached keyed by a SHA-256 hash of the input files. Subsequent runs with the same inputs skip the downmix and feature extraction entirely and load from cache, making parameter iteration fast regardless of recording length.
+After the first analysis run, the extracted features are cached keyed by a SHA-256 hash of the input file metadata (name, size, mtime). Subsequent runs with the same inputs skip the downmix and feature extraction entirely and load from cache, making parameter iteration fast regardless of recording length.
 
 On an M3 Pro MacBook with ~19 GB of audio (10 stems):
 
 | Scenario | Time |
 |---|---|
-| Cold run, cache disabled | ~26 s |
-| Cold run, cache enabled | ~37 s |
-| Cache hit | ~12 s |
+| Cold run | ~20 s |
+| Cache hit | < 0.1 s |
 
 ## Output
 
@@ -95,13 +89,9 @@ All stems are trimmed to exactly the confirmed region boundaries.
 
 ## Backlog
 
-- [x] Implement a system for previewing the downmixed analysis track, to aid with tuning. A big consideration here
-is that the sample rate on the downmix is very low, probably unfit to use for preview, but naively raising it
-potentially leads to much costier analysis. The options need to be investigated thoroughly.
+- [x] Downmix preview track for better altering the detected regions.
 - [ ] Completely rid of all CLI aspects, you just run the GUI app directly.
 - [ ] Look into bundling the app fully to remove the need for a Python runtime installed.
-- [ ] Investigate being able to configure the cache type. If all is feasible, we would default to a much lighter cache
-that does not involve the contents of all files, MASSIVELY increasing performance. Users would be able to opt into
-the cache system of today in case they, for some reason, were constantly messing with their input directory in
-very specific ways (e.g. replacing a file witwh one with virtually identical metadata, but somewhere different audio)
+- [x] Replaced full content-hash cache with a metadata cache (name + size + mtime). A false positive requires
+deliberately crafting identical metadata with different audio, so the heavier hash buys nothing in practice.
 - [ ] Add support for zooming into the region chart.

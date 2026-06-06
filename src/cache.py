@@ -15,10 +15,6 @@ def compute_file_hash(path: Path) -> tuple[str, bytes]:
     file_hasher.update(str(stat.st_mtime_ns).encode())
     file_hasher.update(b"\0")
 
-    with open(path, "rb") as f:
-        while chunk := f.read(8192):
-            file_hasher.update(chunk)
-
     return str(path), file_hasher.digest()
 
 def compute_input_hash(file_paths: list[Path]) -> str:
@@ -73,8 +69,11 @@ def load_cached_analysis(cache_data_path: Path):
         return None
 
     print(f"Loading cached analysis from {cache_data_path}")
+    start_time = time.monotonic()
     with np.load(cache_data_path) as cached:
-        return cached["times"], cached["combined"], cached["rms_norm"], cached["onset_norm"]
+        result = cached["times"], cached["combined"], cached["rms_norm"], cached["onset_norm"]
+    print(f"  cached analysis loaded in {time.monotonic() - start_time:.2f}s")
+    return result
 
 def save_cached_analysis(cache_data_path: Path, cache_meta_path: Path, file_paths: list[Path], exclusions: list[str], sr: int, hop_length: int, times, combined, rms_norm, onset_norm):
     print(f"Saving cached analysis to {cache_data_path} and metadata to {cache_meta_path}")

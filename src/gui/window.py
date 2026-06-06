@@ -176,7 +176,6 @@ class MainWindow(QMainWindow):
             output_dir.mkdir(parents=True, exist_ok=True)
 
         exclusions = params["exclusions"]
-        no_cache = params["no_cache"]
 
         input_files = get_audio_files(input_dir, exclusions)
         if not input_files:
@@ -193,7 +192,6 @@ class MainWindow(QMainWindow):
             input_files=input_files,
             input_dir=input_dir,
             exclusions=exclusions,
-            no_cache=no_cache,
             preview_sr=params["preview_sr"],
             preview_channels=params["preview_channels"],
         )

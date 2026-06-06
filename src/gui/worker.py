@@ -22,7 +22,6 @@ class AnalysisWorker(QObject):
         input_files: list[Path],
         input_dir: Path,
         exclusions: list[str],
-        no_cache: bool,
         preview_sr: int = PREVIEW_SR_DEFAULT,
         preview_channels: int = 1,
     ):
@@ -30,7 +29,6 @@ class AnalysisWorker(QObject):
         self._input_files = input_files
         self._input_dir = input_dir
         self._exclusions = exclusions
-        self._no_cache = no_cache
         self._preview_sr = preview_sr
         self._preview_channels = preview_channels
 
@@ -46,7 +44,7 @@ class AnalysisWorker(QObject):
             cache_dir = cache_data_path.parent
             preview_path = get_preview_downmix_path(cache_dir, cache_hash, self._preview_sr, self._preview_channels)
 
-            if not self._no_cache and cache_data_path.exists():
+            if cache_data_path.exists():
                 self.progress.emit("Loading cached features...")
                 times, combined, rms_norm, onset_norm = load_cached_analysis(cache_data_path)
 
@@ -77,9 +75,8 @@ class AnalysisWorker(QObject):
                 str(analysis_downmix_path), sr=SR, hop_length=HOP_LENGTH
             )
 
-            if not self._no_cache:
-                self.progress.emit("Saving cache...")
-                save_cached_analysis(
+            self.progress.emit("Saving cache...")
+            save_cached_analysis(
                     cache_data_path,
                     cache_meta_path,
                     self._input_files,
