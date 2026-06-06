@@ -10,6 +10,8 @@ DRAG_THRESHOLD_PX = 8
 EPSILON = 1.0
 _PAD_TOP = 8
 _PAD_BOTTOM = 28
+_ZOOM_FACTOR = 1.25
+_MIN_VIEW_SPAN = 1.0  # minimum 1 second when zoomed in
 
 _PALETTE = np.array([
     [30,  30,  30,  255],  # 0 — background
@@ -47,9 +49,13 @@ class WaveformCanvas(QWidget):
         self._regions: list[list[float]] = []
         self._drag: Optional[DragState] = None
 
-        # Caches — invalidated on resize or data change, reused across drags
+        # View state — None means full view
+        self._view_t0: Optional[float] = None
+        self._view_t1: Optional[float] = None
+
+        # Caches — invalidated on resize, data change, or view change
         self._bucket_cache: Optional[np.ndarray] = None
-        self._bucket_cache_w: int = 0
+        self._bucket_cache_key: tuple = (0, 0.0, 0.0)  # (w, view_t0, view_t1)
         self._active_cache: Optional[np.ndarray] = None
         self._active_cache_sz: tuple[int, int] = (0, 0)
 
@@ -80,12 +86,20 @@ class WaveformCanvas(QWidget):
     # Coordinate helpers
     # ------------------------------------------------------------------
 
+    def _get_view_bounds(self) -> tuple[float, float]:
+        if self._times is None:
+            return (0.0, 1.0)
+        t_full_0, t_full_1 = float(self._times[0]), float(self._times[-1])
+        t0 = self._view_t0 if self._view_t0 is not None else t_full_0
+        t1 = self._view_t1 if self._view_t1 is not None else t_full_1
+        return (t0, t1)
+
     def _t_to_x(self, t: float) -> float:
-        t0, t1 = float(self._times[0]), float(self._times[-1])
+        t0, t1 = self._get_view_bounds()
         return (t - t0) / (t1 - t0) * self.width()
 
     def _x_to_t(self, x: float) -> float:
-        t0, t1 = float(self._times[0]), float(self._times[-1])
+        t0, t1 = self._get_view_bounds()
         return t0 + (x / self.width()) * (t1 - t0)
 
     # ------------------------------------------------------------------
@@ -94,32 +108,42 @@ class WaveformCanvas(QWidget):
 
     def _invalidate_waveform_cache(self):
         self._bucket_cache = None
-        self._bucket_cache_w = 0
+        self._bucket_cache_key = (0, 0.0, 0.0)
         self._active_cache = None
         self._active_cache_sz = (0, 0)
 
     def _get_buckets(self, w: int) -> np.ndarray:
-        if self._bucket_cache is not None and self._bucket_cache_w == w:
+        vt0, vt1 = self._get_view_bounds()
+        key = (w, vt0, vt1)
+        if self._bucket_cache is not None and self._bucket_cache_key == key:
             return self._bucket_cache
 
         data = self._combined
         if data is None or len(data) == 0:
             result = np.zeros(w)
         else:
-            n = len(data)
-            edges = np.linspace(0, n, w + 1).astype(int)
-            starts = edges[:-1]
-            unique = np.concatenate(([True], starts[1:] > starts[:-1]))
-            if unique.all():
-                result = np.maximum.reduceat(data, starts).astype(float)
+            # Slice to the visible time range for accurate per-pixel sampling
+            i_start = max(0, int(np.searchsorted(self._times, vt0, side='left')))
+            i_end = min(len(data), int(np.searchsorted(self._times, vt1, side='right')))
+            data_slice = data[i_start:i_end]
+
+            if len(data_slice) == 0:
+                result = np.zeros(w)
             else:
-                result = np.interp(np.linspace(0, n - 1, w), np.arange(n), data)
-            mx = result.max()
-            if mx > 0:
-                result /= mx
+                n = len(data_slice)
+                edges = np.linspace(0, n, w + 1).astype(int)
+                starts = edges[:-1]
+                unique = np.concatenate(([True], starts[1:] > starts[:-1]))
+                if unique.all():
+                    result = np.maximum.reduceat(data_slice, starts).astype(float)
+                else:
+                    result = np.interp(np.linspace(0, n - 1, w), np.arange(n), data_slice)
+                mx = result.max()
+                if mx > 0:
+                    result /= mx
 
         self._bucket_cache = result
-        self._bucket_cache_w = w
+        self._bucket_cache_key = key
         return result
 
     def _get_active(self, w: int, wave_h: int) -> np.ndarray:
@@ -136,6 +160,75 @@ class WaveformCanvas(QWidget):
         self._active_cache = active
         self._active_cache_sz = (w, wave_h)
         return active
+
+    # ------------------------------------------------------------------
+    # Zoom / pan
+    # ------------------------------------------------------------------
+
+    def _zoom_by(self, factor: float, pivot_x: float):
+        """Zoom by factor (>1 = zoom in) centered on the given pixel x."""
+        if self._times is None:
+            return
+        t_full_0 = float(self._times[0])
+        t_full_1 = float(self._times[-1])
+        full_span = t_full_1 - t_full_0
+
+        vt0, vt1 = self._get_view_bounds()
+        span = vt1 - vt0
+        t_pivot = vt0 + (pivot_x / max(1, self.width())) * span
+
+        new_span = max(_MIN_VIEW_SPAN, span / factor)
+
+        # If zooming out past the full range, reset to full view
+        if new_span >= full_span:
+            self._view_t0 = None
+            self._view_t1 = None
+            self._invalidate_waveform_cache()
+            self.update()
+            return
+
+        # Keep the pivot point fixed under the cursor
+        frac = (pivot_x / max(1, self.width()))
+        new_t0 = t_pivot - frac * new_span
+        new_t1 = new_t0 + new_span
+
+        # Clamp to full range
+        if new_t0 < t_full_0:
+            new_t0 = t_full_0
+            new_t1 = new_t0 + new_span
+        if new_t1 > t_full_1:
+            new_t1 = t_full_1
+            new_t0 = new_t1 - new_span
+
+        self._view_t0 = max(t_full_0, new_t0)
+        self._view_t1 = min(t_full_1, new_t1)
+        self._invalidate_waveform_cache()
+        self.update()
+
+    def _pan_by(self, delta_px: float):
+        """Pan the view by delta_px pixels (positive = forward in time)."""
+        if self._times is None or (self._view_t0 is None and self._view_t1 is None):
+            return
+        t_full_0 = float(self._times[0])
+        t_full_1 = float(self._times[-1])
+        vt0, vt1 = self._get_view_bounds()
+        span = vt1 - vt0
+        delta_t = (delta_px / max(1, self.width())) * span
+
+        new_t0 = vt0 + delta_t
+        new_t1 = vt1 + delta_t
+
+        if new_t0 < t_full_0:
+            new_t0 = t_full_0
+            new_t1 = new_t0 + span
+        if new_t1 > t_full_1:
+            new_t1 = t_full_1
+            new_t0 = new_t1 - span
+
+        self._view_t0 = new_t0
+        self._view_t1 = new_t1
+        self._invalidate_waveform_cache()
+        self.update()
 
     # ------------------------------------------------------------------
     # Paint
@@ -171,21 +264,23 @@ class WaveformCanvas(QWidget):
         img = QImage(img_arr.data, w, wave_h, w * 4, QImage.Format.Format_RGBA8888)
         painter.drawImage(0, _PAD_TOP, img)
 
-        # Region boundary handles
+        # Region boundary handles — only draw if within the current view
         pen = QPen(_HANDLE)
         pen.setWidth(2)
         painter.setPen(pen)
         for r0, r1 in self._regions:
             x0 = round(self._t_to_x(r0))
             x1 = round(self._t_to_x(r1))
-            painter.drawLine(x0, _PAD_TOP, x0, _PAD_TOP + wave_h)
-            painter.drawLine(x1, _PAD_TOP, x1, _PAD_TOP + wave_h)
+            if 0 <= x0 <= w:
+                painter.drawLine(x0, _PAD_TOP, x0, _PAD_TOP + wave_h)
+            if 0 <= x1 <= w:
+                painter.drawLine(x1, _PAD_TOP, x1, _PAD_TOP + wave_h)
 
         self._draw_time_axis(painter, w, h, _PAD_TOP + wave_h)
         painter.end()
 
     def _draw_time_axis(self, painter: QPainter, w: int, h: int, y_base: int):
-        t0, t1 = float(self._times[0]), float(self._times[-1])
+        t0, t1 = self._get_view_bounds()
         duration = t1 - t0
         target = max(4, w // 120)
         raw = duration / target
@@ -217,7 +312,7 @@ class WaveformCanvas(QWidget):
         super().resizeEvent(event)
 
     # ------------------------------------------------------------------
-    # Mouse events — drag handles
+    # Mouse events — drag handles, zoom reset
     # ------------------------------------------------------------------
 
     def mousePressEvent(self, event):
@@ -249,6 +344,14 @@ class WaveformCanvas(QWidget):
 
         self._drag = DragState(best_idx, best_which, t_min, t_max)
 
+    def mouseDoubleClickEvent(self, event):
+        if self._times is None or event.button() != Qt.MouseButton.LeftButton:
+            return
+        self._view_t0 = None
+        self._view_t1 = None
+        self._invalidate_waveform_cache()
+        self.update()
+
     def mouseMoveEvent(self, event):
         if self._times is None:
             return
@@ -274,3 +377,18 @@ class WaveformCanvas(QWidget):
             return
         self._drag = None
         self.regions_changed.emit()
+
+    def wheelEvent(self, event):
+        if self._times is None:
+            return
+        delta = event.angleDelta().y()
+        if not delta:
+            return
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            factor = _ZOOM_FACTOR if delta > 0 else 1.0 / _ZOOM_FACTOR
+            self._zoom_by(factor, event.position().x())
+        else:
+            # Each scroll notch (120 units) pans 20% of the visible width
+            pan_px = -(delta / 120.0) * (self.width() * 0.2)
+            self._pan_by(pan_px)
+        event.accept()

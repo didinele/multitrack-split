@@ -90,9 +90,9 @@ All stems are trimmed to exactly the confirmed region boundaries.
 ## Backlog
 
 - [x] Downmix preview track for better altering the detected regions.
-- [ ] Completely rid of all CLI aspects, you just run the GUI app directly.
 - [ ] Look into bundling the app fully to remove the need for a Python runtime installed.
 - [x] Replaced full content-hash cache with a metadata cache (name + size + mtime). A false positive requires
 deliberately crafting identical metadata with different audio, so the heavier hash buys nothing in practice.
-- [ ] Add support for zooming into the region chart.
+- [x] Add support for zooming into the region chart.
 - [ ] App icon
+- [ ] Audio preview will only use the audio devices that was selected when the app was open
