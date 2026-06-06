@@ -2,12 +2,14 @@ import glob
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import QEvent, Qt, QThread
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QFrame,
     QApplication,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -29,6 +31,8 @@ from ..segmentation import (
     smooth_features,
 )
 from .canvas import WaveformCanvas
+from .player import PreviewPlayer
+from .preview_worker import PreviewCreationWorker
 from .sidebar import SettingsSidebar
 from .worker import SR, HOP_LENGTH, AnalysisWorker
 
@@ -55,6 +59,8 @@ class MainWindow(QMainWindow):
         self._worker: Optional[AnalysisWorker] = None
         self._thread: Optional[QThread] = None
         self._confirmed = False
+        self._preview_worker: Optional[PreviewCreationWorker] = None
+        self._preview_thread: Optional[QThread] = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -76,6 +82,9 @@ class MainWindow(QMainWindow):
 
         self._canvas = WaveformCanvas()
         right_layout.addWidget(self._canvas)
+
+        self._player = PreviewPlayer()
+        right_layout.addWidget(self._player)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
@@ -111,6 +120,10 @@ class MainWindow(QMainWindow):
         self._sidebar.run_analysis_requested.connect(self._on_run_analysis)
         self._sidebar.rerun_segmentation_requested.connect(self._on_rerun_segmentation)
         self._canvas.regions_changed.connect(self._update_region_info)
+        self._canvas.regions_changed.connect(self._on_canvas_regions_changed)
+        self._player.refresh_preview_requested.connect(self._on_refresh_preview)
+
+        QApplication.instance().installEventFilter(self)
 
         # --- Status bar progress indicator ---
         self._progress_bar = QProgressBar()
@@ -121,8 +134,23 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._progress_bar)
 
     def closeEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
         self._sidebar.save_settings()
         super().closeEvent(event)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            focused = QApplication.focusWidget()
+            # Don't steal arrow keys from text-entry widgets (QLineEdit covers
+            # the internal editors inside QSpinBox / QDoubleSpinBox / QComboBox).
+            if not isinstance(focused, (QLineEdit, QAbstractSpinBox)):
+                if event.key() == Qt.Key.Key_Left and self._player.is_playing():
+                    self._player.skip(-5.0)
+                    return True
+                if event.key() == Qt.Key.Key_Right and self._player.is_playing():
+                    self._player.skip(5.0)
+                    return True
+        return False
 
     def _set_loading(self, loading: bool):
         self._progress_bar.setVisible(loading)
@@ -157,6 +185,7 @@ class MainWindow(QMainWindow):
 
         self._all_wavs = [Path(f) for f in glob.glob(str(input_dir / "*.[wW][aA][vV]"))]
         self._output_dir = output_dir
+        self._player.stop()
         self._set_loading(True)
         self.statusBar().showMessage("Starting analysis...")
 
@@ -165,6 +194,8 @@ class MainWindow(QMainWindow):
             input_dir=input_dir,
             exclusions=exclusions,
             no_cache=no_cache,
+            preview_sr=params["preview_sr"],
+            preview_channels=params["preview_channels"],
         )
         self._thread = QThread()
         self._worker.moveToThread(self._thread)
@@ -180,8 +211,9 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_worker_finished(self, result):
-        times, combined, rms_norm, onset_norm = result
+        times, combined, rms_norm, onset_norm, preview_path = result
         self._features = (times, combined, rms_norm, onset_norm)
+        self._player.set_preview(preview_path, float(times[-1]))
         self._set_loading(False)
         self._on_rerun_segmentation()
 
@@ -210,6 +242,7 @@ class MainWindow(QMainWindow):
         final_regions = add_padding(extended_regions, params["pre_pad"], params["post_pad"], float(times[-1]))
 
         self._canvas.update_visualization(times, combined, final_regions)
+        self._player.update_regions(final_regions)
 
         self._sidebar.set_rerun_enabled(True)
         self._confirm_btn.setEnabled(bool(final_regions))
@@ -217,8 +250,60 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Done — {len(final_regions)} region(s) detected.")
 
     # ------------------------------------------------------------------
+    # Refresh preview
+    # ------------------------------------------------------------------
+
+    def _on_refresh_preview(self):
+        params = self._sidebar.get_params()
+        input_dir = Path(params["input_dir"])
+        if not input_dir.is_dir() or not self._all_wavs:
+            self.statusBar().showMessage("Error: run analysis first before refreshing preview.")
+            return
+
+        exclusions = params["exclusions"]
+        input_files = get_audio_files(input_dir, exclusions)
+        if not input_files:
+            return
+
+        self._player.stop()
+        self._player.set_refreshing(True)
+        self._set_loading(True)
+        self.statusBar().showMessage("Refreshing preview downmix...")
+
+        self._preview_worker = PreviewCreationWorker(
+            input_files=input_files,
+            input_dir=input_dir,
+            preview_sr=params["preview_sr"],
+            preview_channels=params["preview_channels"],
+        )
+        self._preview_thread = QThread()
+        self._preview_worker.moveToThread(self._preview_thread)
+
+        self._preview_thread.started.connect(self._preview_worker.run)
+        self._preview_worker.progress.connect(self.statusBar().showMessage)
+        self._preview_worker.finished.connect(self._on_preview_worker_finished)
+        self._preview_worker.error.connect(self._on_worker_error)
+        self._preview_worker.finished.connect(self._preview_thread.quit)
+        self._preview_worker.finished.connect(self._preview_worker.deleteLater)
+        self._preview_thread.finished.connect(self._preview_thread.deleteLater)
+
+        self._preview_thread.start()
+
+    def _on_preview_worker_finished(self, preview_path):
+        if self._features is not None:
+            times = self._features[0]
+            self._player.set_preview(preview_path, float(times[-1]))
+        else:
+            self._player.set_refreshing(False)
+        self._set_loading(False)
+        self.statusBar().showMessage("Preview refreshed.")
+
+    # ------------------------------------------------------------------
     # Region info label
     # ------------------------------------------------------------------
+
+    def _on_canvas_regions_changed(self):
+        self._player.update_regions(self._canvas.get_regions())
 
     def _update_region_info(self):
         regions = self._canvas.get_regions()

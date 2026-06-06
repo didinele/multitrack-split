@@ -95,7 +95,7 @@ All stems are trimmed to exactly the confirmed region boundaries.
 
 ## Backlog
 
-- [ ] Implement a system for previewing the downmixed analysis track, to aid with tuning. A big consideration here
+- [x] Implement a system for previewing the downmixed analysis track, to aid with tuning. A big consideration here
 is that the sample rate on the downmix is very low, probably unfit to use for preview, but naively raising it
 potentially leads to much costier analysis. The options need to be investigated thoroughly.
 - [ ] Completely rid of all CLI aspects, you just run the GUI app directly.
@@ -104,3 +104,4 @@ potentially leads to much costier analysis. The options need to be investigated 
 that does not involve the contents of all files, MASSIVELY increasing performance. Users would be able to opt into
 the cache system of today in case they, for some reason, were constantly messing with their input directory in
 very specific ways (e.g. replacing a file witwh one with virtually identical metadata, but somewhere different audio)
+- [ ] Add support for zooming into the region chart.
