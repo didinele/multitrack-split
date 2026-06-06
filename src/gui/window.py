@@ -136,6 +136,20 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         QApplication.instance().removeEventFilter(self)
         self._sidebar.save_settings()
+        self._player.stop()
+        for thread, worker in [
+            (self._thread, self._worker),
+            (self._preview_thread, self._preview_worker),
+        ]:
+            if thread is not None:
+                try:
+                    worker.progress.disconnect()
+                    worker.finished.disconnect()
+                    worker.error.disconnect()
+                except RuntimeError:
+                    pass
+                thread.quit()
+                thread.wait()
         super().closeEvent(event)
 
     def eventFilter(self, obj, event):
@@ -203,8 +217,8 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.error.connect(self._on_worker_error)
         self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
+        self._worker.error.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_analysis_thread_done)
 
         self._thread.start()
 
@@ -218,6 +232,14 @@ class MainWindow(QMainWindow):
     def _on_worker_error(self, message: str):
         self._set_loading(False)
         self.statusBar().showMessage(f"Error: {message}")
+
+    def _on_analysis_thread_done(self):
+        self._worker = None
+        self._thread = None
+
+    def _on_preview_thread_done(self):
+        self._preview_worker = None
+        self._preview_thread = None
 
     # ------------------------------------------------------------------
     # Segmentation (fast, runs on main thread)
@@ -282,8 +304,8 @@ class MainWindow(QMainWindow):
         self._preview_worker.finished.connect(self._on_preview_worker_finished)
         self._preview_worker.error.connect(self._on_worker_error)
         self._preview_worker.finished.connect(self._preview_thread.quit)
-        self._preview_worker.finished.connect(self._preview_worker.deleteLater)
-        self._preview_thread.finished.connect(self._preview_thread.deleteLater)
+        self._preview_worker.error.connect(self._preview_thread.quit)
+        self._preview_thread.finished.connect(self._on_preview_thread_done)
 
         self._preview_thread.start()
 

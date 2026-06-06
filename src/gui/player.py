@@ -7,10 +7,10 @@ import soundfile as sf
 from PySide6.QtCore import Qt, QRect, QThread, Signal, Slot
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QSizePolicy,
-    QSpinBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -146,7 +146,6 @@ class _PlaybackWorker(QThread):
 
     def stop_playback(self):
         self._stop_flag.set()
-        sd.stop()
 
     def run(self):
         done_event = threading.Event()
@@ -184,6 +183,9 @@ class _PlaybackWorker(QThread):
                 with stream:
                     while not done_event.wait(0.1):
                         if self._stop_flag.is_set():
+                            # Wait for the finished_callback before exiting the context
+                            # manager so the stream closes cleanly (avoids AUHAL -50).
+                            done_event.wait(2.0)
                             break
                         self.position_changed.emit(current_frame[0] / sr)
 
@@ -233,19 +235,16 @@ class PreviewPlayer(QWidget):
         self._refresh_btn.clicked.connect(self.refresh_preview_requested)
         controls.addWidget(self._refresh_btn)
 
-        region_label = QLabel("Region:")
-        controls.addWidget(region_label)
-
-        self._region_spin = QSpinBox()
-        self._region_spin.setRange(1, 1)
-        self._region_spin.setFixedWidth(48)
-        self._region_spin.setVisible(False)
-        self._region_spin.setToolTip("Jump to the start of this region")
-        self._region_spin.valueChanged.connect(self._on_region_changed)
-        controls.addWidget(self._region_spin)
-
-        self._region_label = region_label
+        self._region_label = QLabel("Region:")
         self._region_label.setVisible(False)
+        controls.addWidget(self._region_label)
+
+        self._region_combo = QComboBox()
+        self._region_combo.setVisible(False)
+        self._region_combo.setToolTip("Jump to the start of this region")
+        self._region_combo.setMinimumWidth(120)
+        self._region_combo.currentIndexChanged.connect(self._on_region_changed)
+        controls.addWidget(self._region_combo)
 
         controls.addStretch()
 
@@ -278,12 +277,14 @@ class PreviewPlayer(QWidget):
     def update_regions(self, regions: list[tuple[float, float]]):
         self._regions = regions
         has = bool(regions)
-        self._region_spin.setVisible(has)
         self._region_label.setVisible(has)
+        self._region_combo.setVisible(has)
         if has:
-            self._region_spin.blockSignals(True)
-            self._region_spin.setRange(1, len(regions))
-            self._region_spin.blockSignals(False)
+            self._region_combo.blockSignals(True)
+            self._region_combo.clear()
+            for i, (start, _) in enumerate(regions):
+                self._region_combo.addItem(f"Song {i + 1}  —  {_fmt_time(start)}")
+            self._region_combo.blockSignals(False)
         self._seek_bar.set_regions(regions, self._total_duration)
 
     def is_playing(self) -> bool:
@@ -368,10 +369,9 @@ class PreviewPlayer(QWidget):
         if self._worker is not None:
             self._start_playback(normalized * self._total_duration)
 
-    def _on_region_changed(self, value: int):
+    def _on_region_changed(self, idx: int):
         if not self._regions or self._preview_path is None or self._total_duration <= 0:
             return
-        idx = value - 1
         if idx < 0 or idx >= len(self._regions):
             return
         start, _ = self._regions[idx]

@@ -95,3 +95,4 @@ All stems are trimmed to exactly the confirmed region boundaries.
 - [x] Replaced full content-hash cache with a metadata cache (name + size + mtime). A false positive requires
 deliberately crafting identical metadata with different audio, so the heavier hash buys nothing in practice.
 - [ ] Add support for zooming into the region chart.
+- [ ] App icon

@@ -50,6 +50,24 @@ class SettingsSidebar(QWidget):
 
         form.addRow(self._separator())
 
+        self._rerun_btn = QPushButton("Re-run Segmentation")
+        self._rerun_btn.setEnabled(False)
+        self._rerun_btn.setToolTip("Re-apply segmentation heuristics using current parameters (fast — no re-analysis needed)")
+        form.addRow(self._rerun_btn)
+        self._rerun_btn.clicked.connect(self.rerun_segmentation_requested)
+
+        self._run_btn = QPushButton("Run Analysis")
+        self._run_btn.setToolTip("Re-analyse only when input files have changed — use Re-run Segmentation to adjust parameters")
+        form.addRow(self._run_btn)
+        self._run_btn.clicked.connect(self.run_analysis_requested)
+
+        restore_btn = QPushButton("Restore Defaults")
+        restore_btn.setToolTip("Reset all parameters to their default values (directories are unchanged)")
+        form.addRow(restore_btn)
+        restore_btn.clicked.connect(self._restore_defaults)
+
+        form.addRow(self._separator())
+
         # --- Segmentation parameters ---
         form.addRow(QLabel("<b>Segmentation</b>"))
 
@@ -120,24 +138,6 @@ class SettingsSidebar(QWidget):
         self._preview_stereo = QCheckBox()
         self._preview_stereo.setToolTip("Use 2-channel stereo for the preview downmix (mono by default)")
         form.addRow("Stereo preview:", self._preview_stereo)
-
-        form.addRow(self._separator())
-
-        self._rerun_btn = QPushButton("Re-run Segmentation")
-        self._rerun_btn.setEnabled(False)
-        self._rerun_btn.setToolTip("Re-apply segmentation heuristics using current parameters (fast — no re-analysis needed)")
-        form.addRow(self._rerun_btn)
-        self._rerun_btn.clicked.connect(self.rerun_segmentation_requested)
-
-        self._run_btn = QPushButton("Run Analysis")
-        self._run_btn.setToolTip("Re-analyse only when input files have changed — use Re-run Segmentation to adjust parameters")
-        form.addRow(self._run_btn)
-        self._run_btn.clicked.connect(self.run_analysis_requested)
-
-        restore_btn = QPushButton("Restore Defaults")
-        restore_btn.setToolTip("Reset all parameters to their default values (directories are unchanged)")
-        form.addRow(restore_btn)
-        restore_btn.clicked.connect(self._restore_defaults)
 
         scroll = QScrollArea()
         scroll.setWidget(content)
