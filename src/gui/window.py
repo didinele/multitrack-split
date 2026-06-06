@@ -2,12 +2,14 @@ import glob
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import QEvent, Qt, QThread
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QFrame,
     QApplication,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -121,6 +123,8 @@ class MainWindow(QMainWindow):
         self._canvas.regions_changed.connect(self._on_canvas_regions_changed)
         self._player.refresh_preview_requested.connect(self._on_refresh_preview)
 
+        QApplication.instance().installEventFilter(self)
+
         # --- Status bar progress indicator ---
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)  # indeterminate
@@ -130,8 +134,23 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._progress_bar)
 
     def closeEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
         self._sidebar.save_settings()
         super().closeEvent(event)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            focused = QApplication.focusWidget()
+            # Don't steal arrow keys from text-entry widgets (QLineEdit covers
+            # the internal editors inside QSpinBox / QDoubleSpinBox / QComboBox).
+            if not isinstance(focused, (QLineEdit, QAbstractSpinBox)):
+                if event.key() == Qt.Key.Key_Left and self._player.is_playing():
+                    self._player.skip(-5.0)
+                    return True
+                if event.key() == Qt.Key.Key_Right and self._player.is_playing():
+                    self._player.skip(5.0)
+                    return True
+        return False
 
     def _set_loading(self, loading: bool):
         self._progress_bar.setVisible(loading)

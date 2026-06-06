@@ -117,15 +117,15 @@ class SettingsSidebar(QWidget):
         self._preview_sr.setToolTip("Sample rate for the preview audio downmix (does not affect analysis)")
         form.addRow("Preview SR:", self._preview_sr)
 
-        self._preview_stereo = QCheckBox("Stereo preview")
+        self._preview_stereo = QCheckBox()
         self._preview_stereo.setToolTip("Use 2-channel stereo for the preview downmix (mono by default)")
-        form.addRow(self._preview_stereo)
+        form.addRow("Stereo preview:", self._preview_stereo)
 
         form.addRow(self._separator())
 
-        self._no_cache = QCheckBox("Ignore cache")
+        self._no_cache = QCheckBox()
         self._no_cache.setToolTip("Force re-computation even if a cached analysis exists")
-        form.addRow(self._no_cache)
+        form.addRow("Ignore cache:", self._no_cache)
 
         form.addRow(self._separator())
 

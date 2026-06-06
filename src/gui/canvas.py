@@ -55,6 +55,7 @@ class WaveformCanvas(QWidget):
 
         self.setMinimumSize(200, 100)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setMouseTracking(True)
 
     # ------------------------------------------------------------------
