@@ -90,6 +90,10 @@ class AnalysisWorker(QObject):
                 )
 
             self.finished.emit((times, combined, rms_norm, onset_norm, preview_path))
+        except FileNotFoundError as e:
+            self.error.emit(
+                f"ffmpeg not found — ensure ffmpeg is installed and on PATH. ({e})"
+            )
         except Exception as e:
             self.error.emit(str(e))
         finally:
