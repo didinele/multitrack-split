@@ -18,24 +18,16 @@ def get_audio_files(input_dir: Path, exclusions: list[str]) -> list[Path]:
 
     return valid_files
 
-def create_analysis_downmix(output_file: Path, input_files: list[Path], sample_rate: int):
-    """
-    Combines selected valid WAV files into a single mono analysis file
-    at a low sample rate (default 2kHz).
-    """
-    print(f"Creating analysis downmix from {len(input_files)} files at {sample_rate} Hz")
+def create_analysis_downmix(output_file: Path, input_files: list[Path], sample_rate: int, channels: int = 1):
+    print(f"Creating analysis downmix from {len(input_files)} files at {sample_rate} Hz, {channels}ch")
     for f in input_files:
         print(f"  include: {f}")
     print(f"  output downmix path: {output_file}")
-    print("  mixing tracks into mono analysis signal...")
+    print("  mixing tracks...")
 
     inputs = [ffmpeg.input(str(f)) for f in input_files]
-    
-    # amix filter mixes multiple audio streams into one
     mixed = ffmpeg.filter(inputs, 'amix', inputs=len(inputs), normalize=0)
-    
-    # Output to a low sample rate mono file
-    out = ffmpeg.output(mixed, str(output_file), ac=1, ar=sample_rate, loglevel='error')
+    out = ffmpeg.output(mixed, str(output_file), ac=channels, ar=sample_rate, loglevel='error')
 
     start_time = time.monotonic()
     # Overwrite if exists

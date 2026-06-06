@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt, QSettings, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -107,6 +108,20 @@ class SettingsSidebar(QWidget):
         form.addRow("Post-pad:", self._post_pad)
 
         form.addRow(self._separator())
+        form.addRow(QLabel("<b>Preview Quality</b>"))
+
+        self._preview_sr = QComboBox()
+        for sr in (8000, 16000, 22050, 44100, 48000):
+            self._preview_sr.addItem(f"{sr} Hz", sr)
+        self._preview_sr.setCurrentIndex(2)  # 22050 Hz default
+        self._preview_sr.setToolTip("Sample rate for the preview audio downmix (does not affect analysis)")
+        form.addRow("Preview SR:", self._preview_sr)
+
+        self._preview_stereo = QCheckBox("Stereo preview")
+        self._preview_stereo.setToolTip("Use 2-channel stereo for the preview downmix (mono by default)")
+        form.addRow(self._preview_stereo)
+
+        form.addRow(self._separator())
 
         self._no_cache = QCheckBox("Ignore cache")
         self._no_cache.setToolTip("Force re-computation even if a cached analysis exists")
@@ -178,6 +193,8 @@ class SettingsSidebar(QWidget):
             "pre_pad": self._pre_pad.value(),
             "post_pad": self._post_pad.value(),
             "no_cache": self._no_cache.isChecked(),
+            "preview_sr": self._preview_sr.currentData(),
+            "preview_channels": 2 if self._preview_stereo.isChecked() else 1,
         }
 
     def set_run_enabled(self, enabled: bool):
@@ -196,6 +213,8 @@ class SettingsSidebar(QWidget):
         self._pre_pad.setValue(25)
         self._post_pad.setValue(25)
         self._no_cache.setChecked(False)
+        self._preview_sr.setCurrentIndex(2)  # 22050 Hz
+        self._preview_stereo.setChecked(False)
 
     def _load_settings(self):
         s = QSettings("multitrack-split", "multitrack-split")
@@ -221,6 +240,12 @@ class SettingsSidebar(QWidget):
             self._post_pad.setValue(int(s.value("post_pad", 25)))
         if s.contains("no_cache"):
             self._no_cache.setChecked(s.value("no_cache", False, type=bool))
+        if s.contains("preview_sr"):
+            idx = self._preview_sr.findData(int(s.value("preview_sr", 22050)))
+            if idx >= 0:
+                self._preview_sr.setCurrentIndex(idx)
+        if s.contains("preview_stereo"):
+            self._preview_stereo.setChecked(s.value("preview_stereo", False, type=bool))
 
     def save_settings(self):
         params = self.get_params()
@@ -236,3 +261,5 @@ class SettingsSidebar(QWidget):
         s.setValue("pre_pad", params["pre_pad"])
         s.setValue("post_pad", params["post_pad"])
         s.setValue("no_cache", params["no_cache"])
+        s.setValue("preview_sr", params["preview_sr"])
+        s.setValue("preview_stereo", self._preview_stereo.isChecked())

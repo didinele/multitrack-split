@@ -48,6 +48,9 @@ def compute_input_hash(file_paths: list[Path]) -> str:
 
     return cache_hash
 
+def get_preview_downmix_path(cache_dir: Path, cache_hash: str, sr: int, channels: int) -> Path:
+    return cache_dir / f"{cache_hash}_preview_{sr}_{channels}ch.wav"
+
 def get_cache_paths(input_dir: Path, file_paths: list[Path]) -> tuple[Path, Path, str]:
     cache_dir = input_dir / ".multitrack_split_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)

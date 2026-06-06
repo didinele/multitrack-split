@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the app
 
+Please always make sure you use the venv.
+
 ```bash
 python -m src.cli split
 ```
@@ -49,3 +51,9 @@ Lives in `<input_dir>/.multitrack_split_cache/`. Key = SHA-256 of all input file
 - `downmix.py` uses `glob("*.[wW][aA][vV]")` (bracket pattern) to avoid double-listing files on case-insensitive filesystems.
 - ffmpeg must be on `PATH`; on Windows this requires manual installation and PATH configuration.
 - `ThreadPoolExecutor` futures must always be `.result()`-ed — silently swallowed exceptions were a prior bug.
+
+## Workflow with the user
+
+Especially when implementing features, feel free to interview the user relentlessly about every aspect of their prompt
+until you reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between
+decisions one-by-one.
